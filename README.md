@@ -62,10 +62,31 @@ pip install -r requirements.txt
 python -m inference.app
 ```
 
-**UCI engine:**
+**UCI engine (PyTorch):**
 ```bash
 python -m inference.uci_engine
 ```
+
+**UCI engine (ONNX - lightweight, no PyTorch required):**
+```bash
+python -m inference.uci_onnx
+```
+
+The ONNX engine only requires `onnxruntime`, `chess`, and `numpy` - no PyTorch needed at runtime. For GPU acceleration, install `onnxruntime-gpu` instead.
+
+## ONNX Export
+
+To export the model to ONNX format for faster/lighter deployment:
+
+```bash
+python scripts/export_onnx.py
+```
+
+This creates two files in `inference/`:
+- `marvin_small.onnx` - The model graph (~1 MB)
+- `marvin_small.onnx.data` - The weights (~100 MB)
+
+Both files are required and must be kept together.
 
 
 ## Play on Lichess

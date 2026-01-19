@@ -107,12 +107,15 @@ def log_bin_time(seconds: torch.Tensor, num_bins: int = NUM_TIME_LOG_BINS) -> to
     
     Covers 0 to ~1800 seconds (30 min) with denser bins at lower times.
     Uses log1p for smooth handling of zero.
+    
+    ONNX-compatible: uses torch.clamp with min/max tensors to avoid type mismatch.
     """
     # log1p(1800) ≈ 7.5, so divide by 7.5 and scale to bins
-    log_time = torch.log1p(seconds.clamp(min=0))
+    log_time = torch.log1p(torch.clamp(seconds, min=0.0))
     # Normalize to [0, 1] range, then to bin indices
     normalized = log_time / 7.5  # Max expected log1p value
-    bins = (normalized.clamp(0, 0.9999) * num_bins).long()
+    # Use explicit min/max for ONNX compatibility
+    bins = (torch.clamp(normalized, min=0.0, max=0.9999) * num_bins).long()
     return bins
 
 
