@@ -38,7 +38,12 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install onnx onnxruntime
+          pip install onnx onnxruntime onnxscript
+      
+      - name: Download Model Weights
+        run: |
+          curl -L -o inference/marvin_small.pt https://huggingface.co/holymolyyy/marvin/resolve/main/marvin_small.pt
+        shell: bash
       
       - name: Export ONNX model
         run: |
@@ -83,10 +88,17 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
-          pip install onnx onnxruntime pyinstaller
+          pip install onnx onnxruntime onnxscript pyinstaller
+      
+      - name: Download Model Weights
+        run: |
+          curl -L -o inference/marvin_small.pt https://huggingface.co/holymolyyy/marvin/resolve/main/marvin_small.pt
+        shell: bash
       
       - name: Export ONNX model
         run: python scripts/export_onnx.py --device cpu
+        env:
+          PYTHONIOENCODING: utf-8
       
       - name: Build executable
         run: python scripts/build_executable.py --version ${{ needs.build-python.outputs.version }} --no-zip
@@ -121,7 +133,12 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
-          pip install onnx onnxruntime pyinstaller
+          pip install onnx onnxruntime onnxscript pyinstaller
+      
+      - name: Download Model Weights
+        run: |
+          curl -L -o inference/marvin_small.pt https://huggingface.co/holymolyyy/marvin/resolve/main/marvin_small.pt
+        shell: bash
       
       - name: Export ONNX model
         run: python scripts/export_onnx.py --device cpu

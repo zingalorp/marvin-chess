@@ -30,4 +30,5 @@ pydantic
 
 # --- ONNX Runtime (GPU) ---
 onnx
+onnxscript
 onnxruntime-gpu  # Provides CUDAExecutionProvider (requires cuDNN 9.x)
