@@ -7,9 +7,6 @@
 
 # Data preprocessing
 !process_pgn.py
-!profile_data.py
-!calculate_retention_rates.py
-!visualize_profile.py
 
 # Evaluation
 !compare_ACPL.py

@@ -38,26 +38,32 @@ def check_pyinstaller():
         return False
 
 
-def check_onnx_model(repo_root: Path) -> bool:
-    """Check if ONNX model exists."""
+def check_onnx_model(repo_root: Path) -> tuple[bool, bool]:
+    """Check if ONNX model exists.
+    
+    Returns:
+        (model_exists, has_external_data)
+    """
     model_path = repo_root / "inference" / "marvin_small.onnx"
     data_path = repo_root / "inference" / "marvin_small.onnx.data"
     
     if not model_path.exists():
         print(f"ONNX model not found: {model_path}")
         print("  Run 'python scripts/export_onnx.py' first.")
-        return False
-    
-    if not data_path.exists():
-        print(f"ONNX data file not found: {data_path}")
-        return False
+        return False, False
     
     print(f"Found ONNX model ({model_path.stat().st_size / 1024 / 1024:.1f} MB)")
-    print(f"Found ONNX data ({data_path.stat().st_size / 1024 / 1024:.1f} MB)")
-    return True
+    
+    has_external_data = data_path.exists()
+    if has_external_data:
+        print(f"Found ONNX data ({data_path.stat().st_size / 1024 / 1024:.1f} MB)")
+    else:
+        print("No external data file (model weights embedded in .onnx)")
+    
+    return True, has_external_data
 
 
-def build_executable(repo_root: Path, use_onefile: bool = False) -> Path:
+def build_executable(repo_root: Path, use_onefile: bool = False, has_external_data: bool = True) -> Path:
     """Build the executable using PyInstaller."""
     
     # Use direct PyInstaller invocation instead of spec file for reliability
@@ -90,7 +96,13 @@ def build_executable(repo_root: Path, use_onefile: bool = False) -> Path:
         "--name", "marvin-onnx",
         "--console",  # UCI engines need console
         f"--add-data={onnx_model}{os.pathsep}.",
-        f"--add-data={onnx_data}{os.pathsep}.",
+    ]
+    
+    # Only add data file if it exists
+    if has_external_data and onnx_data.exists():
+        cmd.append(f"--add-data={onnx_data}{os.pathsep}.")
+    
+    cmd.extend([
         # Use custom hooks directory
         f"--additional-hooks-dir={hooks_dir}",
         # Collect all onnxruntime files to ensure DLLs are included
@@ -110,7 +122,7 @@ def build_executable(repo_root: Path, use_onefile: bool = False) -> Path:
         "--exclude-module=pandas",
         "--exclude-module=PIL",
         str(uci_script),
-    ]
+    ])
     
     result = subprocess.run(cmd, cwd=str(repo_root))
     
@@ -218,11 +230,12 @@ def main():
         sys.exit(1)
     print("PyInstaller available")
     
-    if not check_onnx_model(repo_root):
+    model_ok, has_external_data = check_onnx_model(repo_root)
+    if not model_ok:
         sys.exit(1)
     
     # Build
-    dist_dir = build_executable(repo_root)
+    dist_dir = build_executable(repo_root, has_external_data=has_external_data)
     
     # Create archive
     if not args.no_zip:

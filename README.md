@@ -48,8 +48,8 @@ The project includes a GUI for seeing prediction distributions, live parameter t
 Tested on Linux/WSL with Python 3.10+.
 
 ```bash
-git clone https://github.com/zingalorp/marvin-chess.git
-cd marvin-chess
+git clone https://github.com/zingalorp/marvin-chess-ai.git
+cd marvin-chess-ai
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

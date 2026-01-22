@@ -797,6 +797,11 @@ def _play_engine_move(board):
     stats_html = format_stats_html(engine_stats)
     engine_pred_time_s = float(engine_stats.get("time_sample_s", 0.0))
     engine_pred_time_prob = float(engine_stats.get("time_sample_prob", 0.0))
+    
+    # Cap first-move think time to avoid berserk-related artifacts in training data.
+    FIRST_MOVE_TIME_CAP_S = 2.0
+    if cursor_engine == 0 and engine_pred_time_s > FIRST_MOVE_TIME_CAP_S:
+        engine_pred_time_s = FIRST_MOVE_TIME_CAP_S
 
     if mcts_stats and game_settings.get("show_mcts_stats", False):
         stats_html = format_mcts_stats_html(mcts_stats)

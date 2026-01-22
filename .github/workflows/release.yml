@@ -180,7 +180,9 @@ jobs:
           body: |
             ## Marvin Chess AI v${{ needs.build-python.outputs.version }}
             
-            A human-like chess engine that mimics play styles across skill levels (1200-2500 Elo).
+            A human-like chess engine that mimics play styles across skill levels (1200-2400 Elo).
+            
+            > **Note**: This release uses ONNX Runtime for **CPU inference only**. GPU acceleration is not included in the standalone executables. For GPU support, use the PyTorch-based engine from the source repository.
             
             ### Downloads
             
@@ -206,12 +208,54 @@ jobs:
             
             ### UCI Options
             
-            | Option | Default | Description |
-            |--------|---------|-------------|
-            | EngineElo | 1900 | Engine's playing strength (1200-2500) |
-            | Temperature | 0.35 | Move randomness |
-            | OpeningTemperature | 1.2 | Randomness in opening phase |
-            | OpeningLength | 10 | Plies considered "opening" |
+            #### Sampling & Style
+            | Option | Type | Default | Description |
+            |--------|------|---------|-------------|
+            | Temperature | string | 0.9 | Move sampling temperature. Lower = more deterministic, higher = more random |
+            | TopP | string | 0.95 | Nucleus sampling threshold. Only considers moves in top P probability mass |
+            | TimeTemperature | string | 0.5 | Temperature for time prediction sampling |
+            | TimeTopP | string | 0.95 | Top-P for time prediction |
+            | OpeningTemperature | string | 1.2 | Higher temperature in opening for variety |
+            | OpeningLength | spin | 10 | Number of plies to use opening temperature (0-100) |
+            
+            #### Elo & Ratings
+            | Option | Type | Default | Description |
+            |--------|------|---------|-------------|
+            | HumanElo | spin | 2400 | Simulated opponent Elo for model conditioning (1200-2400) |
+            | EngineElo | spin | 2400 | Engine's target playing strength (1200-2400) |
+            
+            #### Time Management
+            | Option | Type | Default | Description |
+            |--------|------|---------|-------------|
+            | UseModeTime | check | false | Use mode (most likely) time instead of sampling |
+            | UseExpectedTime | check | true | Use expected value of time distribution |
+            | UseRealTime | check | false | Use actual inference time as think time |
+            | SimulateThinkingTime | check | false | Add artificial delay to simulate human thinking |
+            | InternalClock | check | false | Track time internally (for engines without clock info) |
+            | DebugClocks | check | false | Print clock debug info to stderr |
+            | GameBaseTime | string | 0 | Base time in seconds for internal clock |
+            | GameIncrement | string | 0 | Increment in seconds for internal clock |
+            
+            #### MCTS (Monte Carlo Tree Search)
+            | Option | Type | Default | Description |
+            |--------|------|---------|-------------|
+            | UseMCTS | check | false | Enable MCTS search |
+            | MCTSSimulations | spin | 256 | Number of MCTS simulations (1-200000) |
+            | MCTSCpuct | string | 2.0 | Exploration constant (higher = more exploration) |
+            | MCTSMaxChildren | spin | 48 | Max children per node (1-4096) |
+            | MCTSRootDirichletAlpha | string | 0.0 | Dirichlet noise alpha at root (0 = disabled) |
+            | MCTSRootExplorationFrac | string | 0.0 | Fraction of exploration noise at root |
+            | MCTSFinalTemperature | string | 0.0 | Temperature for final move selection (0 = argmax) |
+            | MCTSFinalTopP | string | 0.9 | Top-P for final move selection |
+            | MCTSMaxDepth | spin | 96 | Maximum search depth (1-512) |
+            | MCTSAdaptive | check | true | Scale simulations based on model's predicted think time × MCTSAdaptiveScale |
+            | MCTSAdaptiveScale | string | 150.0 | Multiplier for predicted time to determine simulation count |
+            | MCTSFPU | string | 0.2 | First Play Urgency - value for unexplored nodes |
+            | MCTSContempt | string | 0.15 | Draw aversion (positive = avoid draws) |
+            | MCTSSimulateTime | check | false | Simulate think time in MCTS |
+            | MCTSStartPly | spin | 0 | Ply to start using MCTS (0-100) |
+            | MCTSTreeReuse | check | true | Reuse search tree between moves |
+            | LogMctsStats | check | false | Log MCTS statistics to stderr |
             
             ### Links
             

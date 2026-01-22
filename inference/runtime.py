@@ -56,7 +56,7 @@ def load_default_chessformer(*, repo_root: Path | None = None, device: torch.dev
 
     if compile_model:
         try:
-            model = torch.compile(model)
+            model = torch.compile(model, mode="default")
         except Exception as e:
             print(f"Warning: torch.compile failed: {e}. Falling back to eager mode.")
 

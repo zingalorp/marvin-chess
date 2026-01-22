@@ -14,7 +14,7 @@ DEFAULT_GAME_SETTINGS: dict = {
     "human_elo": 2400,
     "engine_elo": 2400,
     "human_color": chess.WHITE,
-    "compile_model": True,
+    "compile_model": False,
     "auto_play": False,
     "simulate_thinking_time": False,
     "internal_clock": False,

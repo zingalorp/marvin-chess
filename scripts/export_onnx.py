@@ -28,6 +28,8 @@ class ChessformerONNXWrapper(nn.Module):
     expected by Chessformer.forward().
     
     ONNX doesn't support dict inputs, so we take individual named tensors.
+    
+    Returns 7 outputs including promotion logits for proper promotion handling.
     """
     
     def __init__(self, model: nn.Module):
@@ -55,8 +57,9 @@ class ChessformerONNXWrapper(nn.Module):
             'tc_cat': tc_cat,
             'legal_mask': legal_mask,
         }
-        # Forward returns: move_logits, value_out, value_cls_out, value_error_out, time_cls_out, start_square_logits
-        outputs = self.model(batch)
+        # Forward with return_promo=True returns 7 outputs including promotion logits:
+        # move_logits, value_out, value_cls_out, value_error_out, time_cls_out, start_square_logits, promo_logits
+        outputs = self.model(batch, return_promo=True)
         return outputs
 
 
@@ -77,10 +80,14 @@ def create_dummy_inputs(batch_size: int, device: torch.device):
 def export_to_onnx(
     output_path: Path,
     device: str = "cuda",
-    opset_version: int = 17,
+    opset_version: int = 14,
     batch_size: int = 1,
 ):
-    """Export Chessformer to ONNX format."""
+    """Export Chessformer to ONNX format.
+    
+    Uses the legacy TorchScript-based ONNX exporter for maximum compatibility.
+    The model is exported with a fixed batch size of 1 for simplicity.
+    """
     print(f"Loading Chessformer model...")
     device = torch.device(device if torch.cuda.is_available() else "cpu")
     
@@ -97,7 +104,7 @@ def export_to_onnx(
     wrapper = ChessformerONNXWrapper(model)
     wrapper.eval()
     
-    # Create dummy inputs
+    # Create dummy inputs with batch_size=1 (we'll use fixed batch size for simplicity)
     dummy_inputs = create_dummy_inputs(batch_size, device)
     input_names = [
         "board_history", "time_history", "rep_flags", "castling",
@@ -105,33 +112,33 @@ def export_to_onnx(
     ]
     output_names = [
         "move_logits", "value_out", "value_cls_out", 
-        "value_error_out", "time_cls_out", "start_square_logits"
+        "value_error_out", "time_cls_out", "start_square_logits", "promo_logits"
     ]
     
-    # Dynamic axes for variable batch size
-    dynamic_axes = {
-        name: {0: "batch_size"} for name in input_names + output_names
-    }
+    print(f"\nExporting to ONNX (opset {opset_version}, batch_size={batch_size})...")
+    print("  Using legacy TorchScript exporter for compatibility...")
     
-    print(f"\nExporting to ONNX (opset {opset_version})...")
-    torch.onnx.export(
-        wrapper,
-        dummy_inputs,
-        str(output_path),
-        input_names=input_names,
-        output_names=output_names,
-        dynamic_axes=dynamic_axes,
-        opset_version=opset_version,
-        do_constant_folding=True,
-        export_params=True,
-    )
+    # Use legacy exporter by setting dynamo=False explicitly
+    # Also disable dynamic axes to avoid reshape issues
+    with torch.no_grad():
+        torch.onnx.export(
+            wrapper,
+            dummy_inputs,
+            str(output_path),
+            input_names=input_names,
+            output_names=output_names,
+            opset_version=opset_version,
+            do_constant_folding=True,
+            export_params=True,
+            dynamo=False,  # Use legacy TorchScript exporter
+        )
     print(f"  Exported to: {output_path}")
     
     # Validate the exported model
     print("\nValidating ONNX model...")
     onnx_model = onnx.load(str(output_path))
     onnx.checker.check_model(onnx_model)
-    print("  ✓ ONNX model is valid")
+    print("  [OK] ONNX model is valid")
     
     # Print model info
     print(f"\nModel info:")
@@ -167,18 +174,18 @@ def validate_onnx_vs_pytorch(onnx_path: Path, device: str = "cuda"):
     active_provider = session.get_providers()[0]
     print(f"ONNX Runtime provider: {active_provider}")
     
-    # Create test inputs
-    batch_size = 4
+    # Create test inputs - use batch_size=1 to match exported model
+    batch_size = 1
     dummy_inputs = create_dummy_inputs(batch_size, device)
     input_names = [
         "board_history", "time_history", "rep_flags", "castling",
         "ep_mask", "scalars", "tc_cat", "legal_mask"
     ]
     
-    # PyTorch forward
+    # PyTorch forward (with return_promo=True to match ONNX wrapper)
     with torch.no_grad():
         batch = {name: inp for name, inp in zip(input_names, dummy_inputs)}
-        torch_outputs = model(batch)
+        torch_outputs = model(batch, return_promo=True)
     
     # ONNX forward
     ort_inputs = {
@@ -188,7 +195,7 @@ def validate_onnx_vs_pytorch(onnx_path: Path, device: str = "cuda"):
     
     # Compare outputs
     output_names = ["move_logits", "value_out", "value_cls_out", 
-                    "value_error_out", "time_cls_out", "start_square_logits"]
+                    "value_error_out", "time_cls_out", "start_square_logits", "promo_logits"]
     
     all_close = True
     for i, (name, torch_out, onnx_out) in enumerate(zip(output_names, torch_outputs, onnx_outputs)):
@@ -200,16 +207,16 @@ def validate_onnx_vs_pytorch(onnx_path: Path, device: str = "cuda"):
         rtol, atol = 1e-3, 1e-4
         is_close = np.allclose(torch_arr, onnx_out, rtol=rtol, atol=atol)
         
-        status = "✓" if is_close else "✗"
+        status = "[OK]" if is_close else "[FAIL]"
         print(f"  {status} {name}: max_diff={max_diff:.2e}, mean_diff={mean_diff:.2e}")
         
         if not is_close:
             all_close = False
     
     if all_close:
-        print("\n✓ All outputs match within tolerance!")
+        print("\n[OK] All outputs match within tolerance!")
     else:
-        print("\n⚠ Some outputs differ beyond tolerance (may be ok for bf16 models)")
+        print("\n[WARN] Some outputs differ beyond tolerance (may be ok for bf16 models)")
     
     return all_close
 
@@ -282,8 +289,8 @@ def main():
     parser.add_argument(
         "--opset",
         type=int,
-        default=17,
-        help="ONNX opset version"
+        default=14,
+        help="ONNX opset version (default: 14 for compatibility)"
     )
     parser.add_argument(
         "--validate",
@@ -313,7 +320,7 @@ def main():
     if args.benchmark:
         benchmark_inference(output_path, device=args.device)
     
-    print("\n✓ Done!")
+    print("\n[OK] Done!")
 
 
 if __name__ == "__main__":

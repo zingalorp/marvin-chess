@@ -401,6 +401,7 @@ def train_one_epoch(
     sample_count = 0
     log_timer = time.perf_counter()
     last_log_step = global_step
+    last_log_sample_count = 0
     micro_step = 0
     optimizer.zero_grad(set_to_none=True)
 
@@ -454,8 +455,9 @@ def train_one_epoch(
 
                 elapsed = max(1e-6, time.perf_counter() - log_timer)
                 steps_since = max(1, global_step - last_log_step)
+                samples_since = sample_count - last_log_sample_count
                 it_per_sec = steps_since / elapsed
-                samples_per_sec = it_per_sec * args.batch_size
+                samples_per_sec = samples_since / elapsed
                 print(
                     f"[train] step {global_step:,} | {it_per_sec:.2f} it/s ({samples_per_sec:,.0f} samp/s) | loss {raw_loss.item():.3f} | "
                     f"policy {loss_terms['policy'].item():.3f} | value {loss_terms['value'].item():.4f} | "
@@ -463,6 +465,7 @@ def train_one_epoch(
                 )
                 log_timer = time.perf_counter()
                 last_log_step = global_step
+                last_log_sample_count = sample_count
 
             # Mid-epoch validation
             if args.val_interval > 0 and val_loader is not None and global_step % args.val_interval == 0:

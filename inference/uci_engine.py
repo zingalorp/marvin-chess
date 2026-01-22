@@ -103,6 +103,10 @@ class UciEngine:
         self._ponder_thread: threading.Thread | None = None
         self._ponder_stop_event = threading.Event()
 
+        # Real opponent rating from UCI `opponent` command (lichess-bot sends this)
+        self._real_opponent_rating: int | None = None
+        self._real_opponent_is_engine: bool = False
+
         self.options = self._build_options()
 
     def _maybe_compile_model(self) -> None:
@@ -137,8 +141,9 @@ class UciEngine:
             _Option("UseModeTime", "check", bool(self.settings["use_mode_time"])),
             _Option("UseExpectedTime", "check", bool(self.settings["use_expected_time"])),
             _Option("UseRealTime", "check", bool(self.settings.get("use_real_time", False))),
-            _Option("HumanElo", "spin", int(self.settings["human_elo"]), min=100, max=4000),
-            _Option("EngineElo", "spin", int(self.settings["engine_elo"]), min=100, max=4000),
+            _Option("HumanElo", "spin", int(self.settings["human_elo"]), min=1200, max=2400),
+            _Option("EngineElo", "spin", int(self.settings["engine_elo"]), min=1200, max=2400),
+            _Option("UseRealRatings", "check", bool(self.settings.get("use_real_ratings", False))),
             _Option("CompileModel", "check", bool(self.settings.get("compile_model", False))),
             _Option("SimulateThinkingTime", "check", bool(self.settings.get("simulate_thinking_time", False))),
             _Option("InternalClock", "check", bool(self.settings.get("internal_clock", False))),
@@ -204,6 +209,9 @@ class UciEngine:
         # Clear tree reuse state
         self._last_mcts_result = None
         self._last_mcts_ply = -1
+        # Clear opponent info (will be re-sent by lichess-bot each game)
+        self._real_opponent_rating = None
+        self._real_opponent_is_engine = False
 
     def _invalidate_search_locked(self) -> threading.Thread | None:
         """Invalidate any in-flight search so it can't print/update stale output."""
@@ -316,6 +324,41 @@ class UciEngine:
 
         self._print("uciok")
 
+    def _handle_opponent(self, line: str) -> None:
+        """Handle UCI 'opponent' command sent by lichess-bot.
+        
+        Format: opponent [title <title>] [name <name>] [rating <rating>] [type <computer|human>]
+        
+        We extract the rating and type to use for the model's opponent_elo input
+        when UseRealRatings is enabled.
+        """
+        tokens = line.strip().split()
+        
+        rating: int | None = None
+        is_engine: bool = False
+        
+        i = 1  # skip 'opponent' token
+        while i < len(tokens):
+            if tokens[i] == "rating" and i + 1 < len(tokens):
+                try:
+                    rating = int(tokens[i + 1])
+                except ValueError:
+                    pass
+                i += 2
+            elif tokens[i] == "type" and i + 1 < len(tokens):
+                is_engine = tokens[i + 1].lower() == "computer"
+                i += 2
+            elif tokens[i] in ("title", "name") and i + 1 < len(tokens):
+                i += 2  # skip title/name and its value
+            else:
+                i += 1
+        
+        self._real_opponent_rating = rating
+        self._real_opponent_is_engine = is_engine
+        
+        if rating is not None:
+            print(f"# Opponent rating: {rating} (is_engine={is_engine})", file=sys.stderr)
+
     def _handle_setoption(self, line: str) -> None:
         # setoption name <name> [value <value>]
         tokens = line.strip().split()
@@ -366,6 +409,8 @@ class UciEngine:
             set_setting("human_elo", int(float(value)))
         elif name_key == "engineelo":
             set_setting("engine_elo", int(float(value)))
+        elif name_key == "userealratings":
+            set_setting("use_real_ratings", _bool_from_uci(value))
         elif name_key == "compilemodel":
             set_setting("compile_model", _bool_from_uci(value))
         elif name_key == "simulatethinkingtime":
@@ -590,6 +635,14 @@ class UciEngine:
                     f"active_clock={active_clock_s:.1f}s opp_clock={opponent_clock_s:.1f}s"
                 )
 
+            # If UseRealRatings is enabled and we have a real opponent rating,
+            # temporarily override human_elo for this move computation
+            use_real_ratings = bool(self.settings.get("use_real_ratings", False))
+            original_human_elo = self.settings["human_elo"]
+            if use_real_ratings and self._real_opponent_rating is not None:
+                self.settings["human_elo"] = self._real_opponent_rating
+                self._print(f"info string using real opponent rating: {self._real_opponent_rating}")
+
             out, engine_stats, _mcts_stats, mcts_result = choose_engine_move(
                 model=self.model,
                 device=self.loaded.device,
@@ -607,6 +660,10 @@ class UciEngine:
                 mcts_reuse_root=mcts_reuse_root,
                 mcts_reuse_moves=mcts_reuse_moves,
             )
+
+            # Restore original human_elo if we overrode it
+            if use_real_ratings and self._real_opponent_rating is not None:
+                self.settings["human_elo"] = original_human_elo
 
             # Optional: surface resign/flag head signals to wrappers.
             try:
@@ -899,6 +956,8 @@ class UciEngine:
                     self._set_position(board=board, moves=moves)
             elif line.startswith("go"):
                 self._handle_go(line)
+            elif line.startswith("opponent"):
+                self._handle_opponent(line)
             elif line == "stop":
                 self._handle_stop()
             elif line == "quit":
